@@ -16,6 +16,7 @@ import time
 from pathlib import Path
 from ultralytics.models.yolo import YOLO
 from vision import detect_people, draw_detections, draw_info
+from queue_metrics import compute_queue_length, estimate_eta
 from tracker import SimpleTracker
 
 # ============================================
@@ -36,15 +37,29 @@ PROCESS_EVERY_N = CONFIG.get('process_every_n_frames', 3)
 CONFIDENCE = CONFIG.get('confidence_threshold', 0.5)
 YOLO_MODEL = CONFIG.get('yolo_model', 'yolov8n.pt')
 
-# Parâmetros (fáceis de ajustar)
-LINE_COLOR = (0, 0, 255)  # BGR (vermelho)
-LINE_THICKNESS = 2
+# Sub-configurações
+_tracking = CONFIG.get('tracking', {})
+_counting = CONFIG.get('counting', {})
+_display = CONFIG.get('display', {})
+_queue = CONFIG.get('queue', {})
 
 # Tracking e contagem
-TRACK_MATCH_RADIUS_PX = 60  # raio para associar centroides entre frames
-TRACK_TTL = 6               # ciclos de deteção até expirar track
-LINE_BAND_PX = 100          # banda de avaliação à volta da linha
-DIRECTION = 'left_to_right' # direção válida para contar
+TRACK_MATCH_RADIUS_PX = _tracking.get('match_radius_px', 60)
+TRACK_TTL = _tracking.get('ttl', 6)
+LINE_BAND_PX = _counting.get('line_band_px', 100)
+LINE_X_PERCENT = float(_counting.get('line_x_percent', 0.5))
+DIRECTION = _counting.get('direction', 'left_to_right')
+LINE_COLOR = tuple(_counting.get('line_color_bgr', [0, 0, 255]))
+LINE_THICKNESS = int(_counting.get('line_thickness', 2))
+
+# Display/debug
+SHOW_BOXES = bool(_display.get('show_boxes', True))
+SHOW_BAND = bool(_display.get('show_band', False))
+DEBUG = bool(_display.get('debug', False))
+SHOW_ETA = bool(_display.get('show_eta', False))
+
+# Fila/ETA
+AVG_SERVICE_TIME_SEC = int(_queue.get('avg_service_time_sec', 20))
 
 # Carregar modelo YOLO
 # Na primeira execução faz download automático (~6MB para nano)
@@ -62,15 +77,6 @@ else:
     print(f"ℹ️  Modelo local não encontrado em '{_resolved_model_path}'. A tentar carregar '{YOLO_MODEL}'.")
     MODEL = YOLO(YOLO_MODEL)
     print("✅ Modelo carregado com sucesso (Ultralytics)")
-
-# ============================================
-# FUNÇÕES
-# ============================================
-
-def draw_info(frame, fps, num_people):
-    # esta função agora é importada de vision.py; manter stub se necessário
-    return draw_info(frame, fps, num_people)
-
 
 # ============================================
 # LINE-CROSSING HELPERS
@@ -135,9 +141,16 @@ def main():
     # Estado
     frame_counter = 0
     last_detections = []
+    last_centroids = []
     fps = 0
     total_frames = 0
     start_time = time.time()
+    # Copiar opções de visualização/direção para variáveis mutáveis locais
+    show_boxes = SHOW_BOXES
+    show_band = SHOW_BAND
+    debug = DEBUG
+    direction = DIRECTION
+    show_eta = SHOW_ETA
     # Estado para contagem por linha
     tracker = SimpleTracker(match_radius_px=TRACK_MATCH_RADIUS_PX, ttl=TRACK_TTL)
     entry_count = 0
@@ -155,7 +168,7 @@ def main():
             # Inicializar linha vertical após obter dimensões do frame
             if line_a is None:
                 H, W = frame.shape[:2]
-                x_mid = W // 2
+                x_mid = max(0, min(W - 1, int(W * LINE_X_PERCENT)))
                 line_a = (x_mid, 0)
                 line_b = (x_mid, H)
             
@@ -174,13 +187,15 @@ def main():
                 try:
                     last_detections = detect_people(MODEL, frame, CONFIDENCE)
                     num = len(last_detections)
-                    print(f"📊 [Frame {total_frames}] Detectadas {num} pessoa(s) | FPS: {fps:.1f}")
+                    if debug:
+                        print(f"📊 [Frame {total_frames}] Detectadas {num} pessoa(s) | FPS: {fps:.1f}")
 
                     # Calcular centroides atuais
                     curr_centroids = [
                         ((d['x1'] + d['x2']) // 2, (d['y1'] + d['y2']) // 2)
                         for d in last_detections
                     ]
+                    last_centroids = curr_centroids
 
                     # Atualizar tracker e obter pares (track_id, prev_c, curr_c)
                     matches = tracker.update(curr_centroids)
@@ -195,26 +210,47 @@ def main():
                         # cruzamento geométrico
                         if _crossed_line(prev_c, curr_c, line_a, line_b):
                             # direção válida
-                            if DIRECTION == 'left_to_right' and curr_c[0] > prev_c[0]:
+                            if direction == 'left_to_right' and curr_c[0] > prev_c[0]:
+                                entry_count += 1
+                            elif direction == 'right_to_left' and curr_c[0] < prev_c[0]:
                                 entry_count += 1
                 except Exception as e:
                     print(f"⚠️  Erro na detecção: {e}")
                     last_detections = []
             
             # Desenhar
-            if last_detections:
+            if last_detections and show_boxes:
                 frame = draw_detections(frame, last_detections)
-            
-            frame = draw_info(frame, fps, len(last_detections))
+
+            # Calcular fila e ETA via módulo dedicado
+            x_line = line_a[0]
+            queue_len = compute_queue_length(last_centroids, x_line, direction)
+            eta_sec = estimate_eta(queue_len, AVG_SERVICE_TIME_SEC)
+
+            frame = draw_info(
+                frame,
+                fps,
+                len(last_detections),
+                entry_count,
+                direction,
+                LINE_BAND_PX,
+                queue_len,
+                eta_sec,
+                debug,
+                show_eta,
+            )
 
             # Desenhar linha de contagem (após overlay para ficar visível)
             if line_a is not None and line_b is not None:
                 cv2.line(frame, line_a, line_b, LINE_COLOR, LINE_THICKNESS)
+                # Desenhar banda de avaliação
+                if show_band:
+                    xa = max(0, x_line - LINE_BAND_PX)
+                    xb = min(frame.shape[1] - 1, x_line + LINE_BAND_PX)
+                    band_overlay = frame.copy()
+                    cv2.rectangle(band_overlay, (xa, 0), (xb, frame.shape[0]-1), (255, 255, 0), -1)
+                    cv2.addWeighted(band_overlay, 0.15, frame, 0.85, 0, frame)
 
-            # Mostrar total de entradas (no HUD)
-            cv2.putText(frame, f"Entradas: {entry_count}", (20, 85),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-            
             # Mostrar resultado
             cv2.imshow('Smart Queue - Sistema de Detecção', frame)
             
@@ -223,6 +259,21 @@ def main():
             if key == ord('q') or key == ord('Q'):
                 print("\n🛑 A encerrar...")
                 break
+            elif key == ord('d') or key == ord('D'):
+                debug = not debug
+                print(f"🐞 Debug: {'ON' if debug else 'OFF'}")
+            elif key == ord('o') or key == ord('O'):
+                show_boxes = not show_boxes
+                print(f"🧰 Boxes: {'ON' if show_boxes else 'OFF'}")
+            elif key == ord('b') or key == ord('B'):
+                show_band = not show_band
+                print(f"📏 Banda: {'ON' if show_band else 'OFF'}")
+            elif key == ord('e') or key == ord('E'):
+                show_eta = not show_eta
+                print(f"⏱️  ETA: {'ON' if show_eta else 'OFF'}")
+            elif key == ord('r') or key == ord('R'):
+                direction = 'right_to_left' if direction == 'left_to_right' else 'left_to_right'
+                print(f"↔️  Direção: {direction}")
     
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrompido pelo utilizador (Ctrl+C)")

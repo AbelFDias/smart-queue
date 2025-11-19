@@ -15,6 +15,8 @@ import yaml
 import time
 from pathlib import Path
 from ultralytics.models.yolo import YOLO
+from vision import detect_people, draw_detections, draw_info
+from tracker import SimpleTracker
 
 # ============================================
 # CONFIGURAÇÃO
@@ -35,9 +37,14 @@ CONFIDENCE = CONFIG.get('confidence_threshold', 0.5)
 YOLO_MODEL = CONFIG.get('yolo_model', 'yolov8n.pt')
 
 # Parâmetros (fáceis de ajustar)
-LINE_MATCH_MAX_DIST = 60  # px, raio para associar centroides entre frames
 LINE_COLOR = (0, 0, 255)  # BGR (vermelho)
 LINE_THICKNESS = 2
+
+# Tracking e contagem
+TRACK_MATCH_RADIUS_PX = 60  # raio para associar centroides entre frames
+TRACK_TTL = 6               # ciclos de deteção até expirar track
+LINE_BAND_PX = 100          # banda de avaliação à volta da linha
+DIRECTION = 'left_to_right' # direção válida para contar
 
 # Carregar modelo YOLO
 # Na primeira execução faz download automático (~6MB para nano)
@@ -60,104 +67,9 @@ else:
 # FUNÇÕES
 # ============================================
 
-def detect_people(frame):
-    """
-    Detecta pessoas num frame usando YOLOv8 local.
-    
-    Args:
-        frame: Frame numpy array (BGR) do OpenCV
-    
-    Returns:
-        Lista de dicionários com detecções:
-        [{
-            'x1': int, 'y1': int,  # Canto superior esquerdo
-            'x2': int, 'y2': int,  # Canto inferior direito
-            'confidence': float    # Confiança da detecção (0-1)
-        }, ...]
-    """
-    # Inferência YOLO
-    # classes=[0] = apenas pessoas (classe 0 do COCO dataset)
-    # verbose=False = sem prints no terminal
-    results = MODEL(frame, conf=CONFIDENCE, classes=[0], verbose=False)
-    
-    # Extrair bounding boxes
-    detections = []
-    for result in results:
-        boxes = result.boxes
-        for box in boxes:
-            # Coordenadas do bounding box
-            x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-            conf = float(box.conf[0])
-            
-            detections.append({
-                'x1': int(x1),
-                'y1': int(y1),
-                'x2': int(x2),
-                'y2': int(y2),
-                'confidence': conf
-            })
-    
-    return detections
-
-
-def draw_detections(frame, detections):
-    """
-    Desenha bounding boxes sobre as detecções de pessoas.
-    
-    Args:
-        frame: Frame onde desenhar
-        detections: Lista de detecções da função detect_people()
-    
-    Returns:
-        Frame com as detecções desenhadas
-    """
-    for det in detections:
-        x1, y1 = det['x1'], det['y1']
-        x2, y2 = det['x2'], det['y2']
-        conf = det['confidence']
-        
-        # Desenhar retângulo verde em volta da pessoa
-        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-        
-        # Label com confiança
-        label = f"Pessoa: {conf:.0%}"
-        
-        # Fundo para o texto (melhor legibilidade)
-        label_size, _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)
-        label_w, label_h = label_size
-        cv2.rectangle(frame, (x1, y1 - label_h - 10), (x1 + label_w, y1), (0, 255, 0), -1)
-        
-        # Texto
-        cv2.putText(frame, label, (x1, y1 - 5),
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 2)
-    
-    return frame
-
-
 def draw_info(frame, fps, num_people):
-    """
-    Desenha painel de informações no canto superior esquerdo.
-    
-    Args:
-        frame: Frame onde desenhar
-        fps: FPS atual
-        num_people: Número de pessoas detectadas
-    
-    Returns:
-        Frame com overlay de informações
-    """
-    # Criar fundo semi-transparente
-    overlay = frame.copy()
-    cv2.rectangle(overlay, (10, 10), (280, 85), (0, 0, 0), -1)
-    cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
-    
-    # Informações
-    cv2.putText(frame, f"FPS: {fps:.1f}", (20, 35),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    cv2.putText(frame, f"Pessoas detectadas: {num_people}", (20, 60),
-               cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
-    
-    return frame
+    # esta função agora é importada de vision.py; manter stub se necessário
+    return draw_info(frame, fps, num_people)
 
 
 # ============================================
@@ -227,7 +139,7 @@ def main():
     total_frames = 0
     start_time = time.time()
     # Estado para contagem por linha
-    prev_centroids = []
+    tracker = SimpleTracker(match_radius_px=TRACK_MATCH_RADIUS_PX, ttl=TRACK_TTL)
     entry_count = 0
     # Linha vertical (fila esquerda → direita), inicializa com base no tamanho do frame
     line_a = None  # (x, y)
@@ -260,7 +172,7 @@ def main():
                 frame_counter = 0
                 
                 try:
-                    last_detections = detect_people(frame)
+                    last_detections = detect_people(MODEL, frame, CONFIDENCE)
                     num = len(last_detections)
                     print(f"📊 [Frame {total_frames}] Detectadas {num} pessoa(s) | FPS: {fps:.1f}")
 
@@ -270,26 +182,21 @@ def main():
                         for d in last_detections
                     ]
 
-                    # Matching greedy com centroides do frame anterior
-                    used_prev = set()
-                    max_d2 = LINE_MATCH_MAX_DIST * LINE_MATCH_MAX_DIST
-                    for c in curr_centroids:
-                        best_i, best_d2 = None, 1e18
-                        for i, p in enumerate(prev_centroids):
-                            if i in used_prev:
-                                continue
-                            dx, dy = c[0] - p[0], c[1] - p[1]
-                            d2 = dx * dx + dy * dy
-                            if d2 < best_d2:
-                                best_d2 = d2
-                                best_i = i
-                        if best_i is not None and best_d2 <= max_d2:
-                            if _crossed_line(prev_centroids[best_i], c, line_a, line_b):
-                                entry_count += 1
-                            used_prev.add(best_i)
+                    # Atualizar tracker e obter pares (track_id, prev_c, curr_c)
+                    matches = tracker.update(curr_centroids)
 
-                    # Atualizar histórico
-                    prev_centroids = curr_centroids
+                    # Contagem com filtro de direção (left -> right) e banda
+                    x_line = line_a[0]
+                    for _, prev_c, curr_c in matches:
+                        # banda em torno da linha
+                        if (abs(prev_c[0] - x_line) > LINE_BAND_PX and
+                                abs(curr_c[0] - x_line) > LINE_BAND_PX):
+                            continue
+                        # cruzamento geométrico
+                        if _crossed_line(prev_c, curr_c, line_a, line_b):
+                            # direção válida
+                            if DIRECTION == 'left_to_right' and curr_c[0] > prev_c[0]:
+                                entry_count += 1
                 except Exception as e:
                     print(f"⚠️  Erro na detecção: {e}")
                     last_detections = []

@@ -1,14 +1,16 @@
-# 🎯 Smart Queue (estado atual)
+# 🎯 Smart Queue
 
-Sistema simples de detecção de pessoas em tempo real usando **YOLOv8 local**, pensado como base para um sistema de gestão de filas.
+Sistema de detecção de pessoas e contagem por linha em tempo real usando **YOLOv8 local**, pensado como base para um sistema de gestão de filas (queueing).
 
-Foco atual: implementação rápida, estável e offline (sem APIs externas).
+Foco atual: implementação rápida, estável e offline (sem APIs externas), com HUD e configurações simples.
 
 ## ✅ O que está feito
 
 - Detecção local com **YOLOv8** (ultralytics)
-- Visualização em tempo real com bounding boxes e **FPS**
-- Configuração simples via `config.yaml`
+- Tracking leve por centróides (associação 1:1, TTL)
+- Contagem por cruzamento de linha vertical com filtro de direção (L→R ou R→L)
+- HUD com FPS, pessoas, entradas, direção, banda, fila e ETA
+- Parâmetros no `config.yaml` (modelo, FPS, confiança, tracking, linha, display, ETA)
 - Suporte a diferentes fontes de vídeo (webcam/Iriun)
 - Caminho do modelo resolvido de forma robusta (`models/yolov8n.pt`)
 
@@ -17,9 +19,11 @@ Foco atual: implementação rápida, estável e offline (sem APIs externas).
 ```
 smart-queue/
 ├── src/
-│   └── main.py              # Script principal (YOLO + OpenCV)
+│   ├── main.py              # Orquestra captura, deteção, tracking e HUD
+│   ├── vision.py            # YOLO + desenhos (boxes, HUD)
+│   └── tracker.py           # SimpleTracker (centróides, TTL)
 ├── config/
-│   └── config.yaml          # Configurações (fonte vídeo, modelo, FPS, confiança)
+│   └── config.yaml          # Fonte vídeo, modelo, detecção, tracking, linha, display, ETA
 ├── models/
 │   └── yolov8n.pt           # (opcional) Peso local do modelo
 ├── data/
@@ -32,20 +36,43 @@ Nota: ficheiros `*.pt` estão ignorados no git; se não existir `models/yolov8n.
 
 ## ⚙️ Configuração
 
-Edita `config/config.yaml`:
+Edita `config/config.yaml` (principais opções):
 
 ```yaml
 # Fonte de vídeo
-video_source: 0                # 0=webcam, 1=segunda webcam, ou URL Iriun
+video_source: 0
 
-# Performance (YOLO é rápido)
-process_every_n_frames: 3      # 1=todos os frames; 3=bom equilíbrio; 5=mais rápido
+# Performance (processar 1 em cada N frames)
+process_every_n_frames: 3
 
 # Modelo YOLO (caminho relativo à raiz do projeto)
-yolo_model: 'models/yolov8n.pt'  # n=nano (rápido), s=small, m=medium
+yolo_model: 'models/yolov8n.pt'
 
 # Detecção
-confidence_threshold: 0.5      # 0.3=mais detecções; 0.7=mais preciso
+confidence_threshold: 0.5
+
+# Tracking (associação simples por centróides)
+tracking:
+	match_radius_px: 60
+	ttl: 6
+
+# Contagem por linha vertical
+counting:
+	direction: 'left_to_right'   # ou 'right_to_left'
+	line_band_px: 100            # largura da banda de avaliação
+	line_x_percent: 0.5          # posição da linha (0.0 esquerda, 1.0 direita)
+	line_color_bgr: [0, 0, 255]
+	line_thickness: 2
+
+# Visualização e debug
+display:
+	show_boxes: true
+	show_band: false
+	debug: false
+
+# Fila (estimativa de tempo de espera)
+queue:
+	avg_service_time_sec: 20
 ```
 
 ## 🚀 Instalação
@@ -66,7 +93,13 @@ cd src
 python main.py
 ```
 
-Controlo: tecla `Q` para sair.
+Controlo (durante execução):
+
+- `Q`: sair
+- `D`: alterna debug (logs)
+- `O`: alterna boxes (YOLO)
+- `B`: alterna banda de contagem
+- `R`: alterna direção (L→R ↔ R→L)
 
 ## 📊 Performance (CPU)
 
@@ -84,11 +117,11 @@ Valores dependem do hardware. Com GPU os FPS aumentam bastante.
 - Não deteta ninguém: baixa `confidence_threshold` (0.3/0.4) e verifica iluminação
 - Modelo em falta: o código tenta caminho local; se não existir, usa download do Ultralytics
 
-## 🗺️ Próximos passos (roadmap curto)
+## 🗺️ Próximos passos (curto prazo)
 
-- Contagem por line-crossing (entradas na fila)
-- Tracking simples por ID
-- Estimativa de ETA baseada no comprimento da fila
+- Ajustes finos no tracking (distâncias adaptativas)
+- Persistência dos contadores/logs
+- Zona de ROI para a fila e contagem segmentada
 
 ## 📄 Licença
 

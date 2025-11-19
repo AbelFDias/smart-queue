@@ -27,3 +27,27 @@ yolo_model: 'models/yolov8n.pt'
 # 0.5 = equilibrado (recomendado)
 # 0.7 = apenas detecções muito confiantes
 confidence_threshold: 0.5
+
+# Tracking (associação simples por centróides)
+tracking:
+  match_radius_px: 60   # raio máximo para associar centróides entre frames
+  ttl: 6                # ciclos sem match até expirar um track
+
+# Contagem por linha vertical (fila esquerda → direita)
+counting:
+  direction: 'left_to_right'   # 'left_to_right' ou 'right_to_left'
+  line_band_px: 100            # largura da banda de avaliação à volta da linha
+  line_x_percent: 0.5          # posição da linha (0.0 esquerda, 1.0 direita)
+  line_color_bgr: [0, 0, 255]  # cor BGR da linha (vermelho)
+  line_thickness: 2            # espessura da linha
+
+# Visualização e debug
+display:
+  show_boxes: true     # desenhar bounding boxes
+  show_band: false     # desenhar banda em torno da linha
+  debug: false         # logs detalhados (menos silencioso)
+  show_eta: false      # mostrar (ou não) a linha de Fila/ETA no HUD
+
+# Fila (estimativa de tempo de espera)
+queue:
+  avg_service_time_sec: 20  # tempo médio de atendimento por pessoa (segundos)

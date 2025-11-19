@@ -34,6 +34,11 @@ PROCESS_EVERY_N = CONFIG.get('process_every_n_frames', 3)
 CONFIDENCE = CONFIG.get('confidence_threshold', 0.5)
 YOLO_MODEL = CONFIG.get('yolo_model', 'yolov8n.pt')
 
+# Parâmetros (fáceis de ajustar)
+LINE_MATCH_MAX_DIST = 60  # px, raio para associar centroides entre frames
+LINE_COLOR = (0, 0, 255)  # BGR (vermelho)
+LINE_THICKNESS = 2
+
 # Carregar modelo YOLO
 # Na primeira execução faz download automático (~6MB para nano)
 print("🔄 A carregar modelo YOLO...")
@@ -156,6 +161,29 @@ def draw_info(frame, fps, num_people):
 
 
 # ============================================
+# LINE-CROSSING HELPERS
+# ============================================
+
+def _sign(x: float, eps: float = 1e-3) -> int:
+    if x > eps:
+        return 1
+    if x < -eps:
+        return -1
+    return 0
+
+
+def _point_side(p, a, b) -> float:
+    # cross((b - a), (p - a))
+    return (b[0] - a[0]) * (p[1] - a[1]) - (b[1] - a[1]) * (p[0] - a[0])
+
+
+def _crossed_line(prev_p, curr_p, a, b) -> bool:
+    s1 = _sign(_point_side(prev_p, a, b))
+    s2 = _sign(_point_side(curr_p, a, b))
+    return s1 != 0 and s2 != 0 and s1 != s2
+
+
+# ============================================
 # MAIN
 # ============================================
 
@@ -198,6 +226,12 @@ def main():
     fps = 0
     total_frames = 0
     start_time = time.time()
+    # Estado para contagem por linha
+    prev_centroids = []
+    entry_count = 0
+    # Linha vertical (fila esquerda → direita), inicializa com base no tamanho do frame
+    line_a = None  # (x, y)
+    line_b = None  # (x, y)
     
     try:
         while True:
@@ -205,6 +239,13 @@ def main():
             if not ret:
                 print("❌ Erro ao ler frame")
                 break
+
+            # Inicializar linha vertical após obter dimensões do frame
+            if line_a is None:
+                H, W = frame.shape[:2]
+                x_mid = W // 2
+                line_a = (x_mid, 0)
+                line_b = (x_mid, H)
             
             total_frames += 1
             frame_counter += 1
@@ -222,6 +263,33 @@ def main():
                     last_detections = detect_people(frame)
                     num = len(last_detections)
                     print(f"📊 [Frame {total_frames}] Detectadas {num} pessoa(s) | FPS: {fps:.1f}")
+
+                    # Calcular centroides atuais
+                    curr_centroids = [
+                        ((d['x1'] + d['x2']) // 2, (d['y1'] + d['y2']) // 2)
+                        for d in last_detections
+                    ]
+
+                    # Matching greedy com centroides do frame anterior
+                    used_prev = set()
+                    max_d2 = LINE_MATCH_MAX_DIST * LINE_MATCH_MAX_DIST
+                    for c in curr_centroids:
+                        best_i, best_d2 = None, 1e18
+                        for i, p in enumerate(prev_centroids):
+                            if i in used_prev:
+                                continue
+                            dx, dy = c[0] - p[0], c[1] - p[1]
+                            d2 = dx * dx + dy * dy
+                            if d2 < best_d2:
+                                best_d2 = d2
+                                best_i = i
+                        if best_i is not None and best_d2 <= max_d2:
+                            if _crossed_line(prev_centroids[best_i], c, line_a, line_b):
+                                entry_count += 1
+                            used_prev.add(best_i)
+
+                    # Atualizar histórico
+                    prev_centroids = curr_centroids
                 except Exception as e:
                     print(f"⚠️  Erro na detecção: {e}")
                     last_detections = []
@@ -231,6 +299,14 @@ def main():
                 frame = draw_detections(frame, last_detections)
             
             frame = draw_info(frame, fps, len(last_detections))
+
+            # Desenhar linha de contagem (após overlay para ficar visível)
+            if line_a is not None and line_b is not None:
+                cv2.line(frame, line_a, line_b, LINE_COLOR, LINE_THICKNESS)
+
+            # Mostrar total de entradas (no HUD)
+            cv2.putText(frame, f"Entradas: {entry_count}", (20, 85),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
             
             # Mostrar resultado
             cv2.imshow('Smart Queue - Sistema de Detecção', frame)

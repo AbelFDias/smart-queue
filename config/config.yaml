@@ -1,0 +1,29 @@
+# ============================================
+# Smart Queue - Configuração
+# ============================================
+
+# Fonte de vídeo
+# 0 = webcam padrão
+# 1 = segunda webcam  
+video_source: 1
+
+# Performance
+# Processar apenas 1 em cada N frames (YOLO é rápido!)
+# 1 = todos os frames (máxima precisão, ~20-30 FPS com YOLOv8n)
+# 3 = muito bom equilíbrio
+# 5 = mais rápido, ainda muito bom
+process_every_n_frames: 3
+
+# Modelo YOLO
+# Caminho relativo à raiz do projeto
+# 'models/yolov8n.pt' = nano (mais rápido, ~6MB)
+# 'models/yolov8s.pt' = small (bom equilíbrio)
+# 'models/yolov8m.pt' = medium (mais preciso, mais lento)
+yolo_model: 'models/yolov8n.pt'
+
+# Detecção
+# Confiança mínima para considerar uma detecção válida
+# 0.3 = detecta mais (pode ter falsos positivos)
+# 0.5 = equilibrado (recomendado)
+# 0.7 = apenas detecções muito confiantes
+confidence_threshold: 0.5

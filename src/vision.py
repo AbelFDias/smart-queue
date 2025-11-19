@@ -43,13 +43,39 @@ def draw_detections(frame, detections):
     return frame
 
 
-def draw_info(frame, fps: float, num_people: int):
+def draw_info(
+    frame,
+    fps: float,
+    num_people: int,
+    entries: int,
+    direction: str,
+    band_px: int,
+    queue_len: int,
+    eta_sec: int,
+    debug: bool = False,
+    show_eta: bool = False,
+):
     overlay = frame.copy()
-    cv2.rectangle(overlay, (10, 10), (280, 85), (0, 0, 0), -1)
+    # Expand HUD area to fit more lines
+    cv2.rectangle(overlay, (10, 10), (360, 140), (0, 0, 0), -1)
     cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
 
-    cv2.putText(frame, f"FPS: {fps:.1f}", (20, 35),
+    y = 35
+    cv2.putText(frame, f"FPS: {fps:.1f}", (20, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-    cv2.putText(frame, f"Pessoas detectadas: {num_people}", (20, 60),
+    y += 25
+    cv2.putText(frame, f"Pessoas: {num_people}", (20, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+    y += 25
+    dir_label = 'L->R' if direction == 'left_to_right' else 'R->L'
+    cv2.putText(frame, f"Entradas: {entries}  Dir: {dir_label}", (20, y),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+    y += 25
+    if show_eta:
+        mm, ss = divmod(int(eta_sec), 60)
+        cv2.putText(frame, f"Fila: {queue_len}  ETA: {mm:02d}:{ss:02d}  Banda: {band_px}px", (20, y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 2)
+    if debug:
+        # small marker to indicate debug on
+        cv2.circle(frame, (340, 24), 6, (0, 0, 255), -1)
     return frame

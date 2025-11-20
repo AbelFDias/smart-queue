@@ -47,10 +47,12 @@ display:
   show_band: false     # desenhar banda em torno da linha
   debug: false         # logs detalhados (menos silencioso)
   show_eta: false      # mostrar (ou não) a linha de Fila/ETA no HUD
+  show_metrics: false  # mostrar métrica compacta (lambda/mu/utilização)
 
 # Fila (estimativa de tempo de espera)
 queue:
   avg_service_time_sec: 20  # tempo médio de atendimento por pessoa (segundos)
+  window_sec: 120            # janela para taxa de chegadas (lambda)
 
 # Teclas (personalizáveis)
 controls:
@@ -60,3 +62,6 @@ controls:
   toggle_band: 'b'
   toggle_eta: 'e'
   toggle_direction: 'r'
+  toggle_metrics: 'm'
+
+# Métricas de fila

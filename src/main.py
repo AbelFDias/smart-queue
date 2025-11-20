@@ -16,7 +16,7 @@ import time
 from pathlib import Path
 from ultralytics.models.yolo import YOLO
 from vision import detect_people, draw_detections, draw_info
-from queue_metrics import compute_queue_length, estimate_eta
+from queue_metrics import QueueStats
 from tracker import SimpleTracker
 
 # ============================================
@@ -43,6 +43,7 @@ _counting = CONFIG.get('counting', {})
 _display = CONFIG.get('display', {})
 _queue = CONFIG.get('queue', {})
 _controls = CONFIG.get('controls', {})
+_metrics = CONFIG.get('metrics', {})  # será removido quando window_sec migrar para queue
 
 # Tracking e contagem
 TRACK_MATCH_RADIUS_PX = _tracking.get('match_radius_px', 60)
@@ -58,9 +59,11 @@ SHOW_BOXES = bool(_display.get('show_boxes', True))
 SHOW_BAND = bool(_display.get('show_band', False))
 DEBUG = bool(_display.get('debug', False))
 SHOW_ETA = bool(_display.get('show_eta', False))
+SHOW_METRICS = bool(_display.get('show_metrics', False))
 
 # Fila/ETA
 AVG_SERVICE_TIME_SEC = int(_queue.get('avg_service_time_sec', 20))
+METRICS_WINDOW_SEC = int(_queue.get('window_sec', _metrics.get('window_sec', 120)))
 
 # Controlo (teclas configuráveis)
 QUIT_KEY = _controls.get('quit', 'q').lower()
@@ -69,6 +72,7 @@ BOXES_KEY = _controls.get('toggle_boxes', 'o').lower()
 BAND_KEY = _controls.get('toggle_band', 'b').lower()
 ETA_KEY = _controls.get('toggle_eta', 'e').lower()
 DIR_KEY = _controls.get('toggle_direction', 'r').lower()
+METRICS_KEY = _controls.get('toggle_metrics', 'm').lower()
 
 # Carregar modelo YOLO
 # Na primeira execução faz download automático (~6MB para nano)
@@ -148,6 +152,7 @@ def main():
     print(f"  {BAND_KEY.upper()} - Banda ON/OFF")
     print(f"  {ETA_KEY.upper()} - ETA ON/OFF")
     print(f"  {DIR_KEY.upper()} - Alternar direção")
+    print(f"  {METRICS_KEY.upper()} - Métricas ON/OFF")
     print()
     print("=" * 70)
     print()
@@ -155,23 +160,29 @@ def main():
     # Estado
     frame_counter = 0
     last_detections = []
-    last_centroids = []
     fps = 0
     total_frames = 0
     start_time = time.time()
+    last_tick_time = start_time
     # Copiar opções de visualização/direção para variáveis mutáveis locais
     show_boxes = SHOW_BOXES
     show_band = SHOW_BAND
     debug = DEBUG
     direction = DIRECTION
     show_eta = SHOW_ETA
+    show_metrics = SHOW_METRICS
     # Estado para contagem por linha
     tracker = SimpleTracker(match_radius_px=TRACK_MATCH_RADIUS_PX, ttl=TRACK_TTL)
     entry_count = 0
+    queue_stats = QueueStats(window_sec=METRICS_WINDOW_SEC)
     # Linha vertical (fila esquerda → direita), inicializa com base no tamanho do frame
     line_a = None  # (x, y)
     line_b = None  # (x, y)
     
+    def log_debug(msg: str):
+        if debug:
+            print(msg)
+
     try:
         while True:
             ret, frame = cap.read()
@@ -185,6 +196,12 @@ def main():
                 x_mid = max(0, min(W - 1, int(W * LINE_X_PERCENT)))
                 line_a = (x_mid, 0)
                 line_b = (x_mid, H)
+
+            # Atualizar drenagem do modelo simulado por tempo decorrido
+            now = time.time()
+            dt = now - last_tick_time
+            last_tick_time = now
+            queue_stats.tick(dt, AVG_SERVICE_TIME_SEC)
             
             total_frames += 1
             frame_counter += 1
@@ -201,15 +218,14 @@ def main():
                 try:
                     last_detections = detect_people(MODEL, frame, CONFIDENCE)
                     num = len(last_detections)
-                    if debug:
-                        print(f"📊 [Frame {total_frames}] Detectadas {num} pessoa(s) | FPS: {fps:.1f}")
+                    log_debug(f"📊 [Frame {total_frames}] Detectadas {num} pessoa(s) | FPS: {fps:.1f}")
 
                     # Calcular centroides atuais
                     curr_centroids = [
                         ((d['x1'] + d['x2']) // 2, (d['y1'] + d['y2']) // 2)
                         for d in last_detections
                     ]
-                    last_centroids = curr_centroids
+                    # sem necessidade de guardar centroides para fila simulada
 
                     # Atualizar tracker e obter pares (track_id, prev_c, curr_c)
                     matches = tracker.update(curr_centroids)
@@ -226,8 +242,10 @@ def main():
                             # direção válida
                             if direction == 'left_to_right' and curr_c[0] > prev_c[0]:
                                 entry_count += 1
+                                queue_stats.on_entry()
                             elif direction == 'right_to_left' and curr_c[0] < prev_c[0]:
                                 entry_count += 1
+                                queue_stats.on_entry()
                 except Exception as e:
                     print(f"⚠️  Erro na detecção: {e}")
                     last_detections = []
@@ -236,10 +254,17 @@ def main():
             if last_detections and show_boxes:
                 frame = draw_detections(frame, last_detections)
 
-            # Calcular fila e ETA via módulo dedicado
-            x_line = line_a[0]
-            queue_len = compute_queue_length(last_centroids, x_line, direction)
-            eta_sec = estimate_eta(queue_len, AVG_SERVICE_TIME_SEC)
+            # Calcular fila e ETA via modelo simulado
+            queue_len = queue_stats.current_queue_len()
+            eta_sec = queue_stats.eta_for_new(queue_len, AVG_SERVICE_TIME_SEC)
+            # Construir dicionário de métricas (para emonCMS ou logs)
+            metrics_dict = queue_stats.build_metrics(
+                fps=fps,
+                entries=entry_count,
+                direction=direction,
+                people_detected=len(last_detections),
+                avg_service_time_sec=AVG_SERVICE_TIME_SEC,
+            )
 
             frame = draw_info(
                 frame,
@@ -252,6 +277,8 @@ def main():
                 eta_sec,
                 debug,
                 show_eta,
+                show_metrics,
+                metrics_dict,
             )
 
             # Desenhar linha de contagem (após overlay para ficar visível)
@@ -259,6 +286,7 @@ def main():
                 cv2.line(frame, line_a, line_b, LINE_COLOR, LINE_THICKNESS)
                 # Desenhar banda de avaliação
                 if show_band:
+                    x_line = line_a[0]
                     xa = max(0, x_line - LINE_BAND_PX)
                     xb = min(frame.shape[1] - 1, x_line + LINE_BAND_PX)
                     band_overlay = frame.copy()
@@ -289,6 +317,9 @@ def main():
             elif key_char == DIR_KEY:
                 direction = 'right_to_left' if direction == 'left_to_right' else 'left_to_right'
                 print(f"↔️  Direção: {direction}")
+            elif key_char == METRICS_KEY:
+                show_metrics = not show_metrics
+                print(f"📈 Métricas: {'ON' if show_metrics else 'OFF'}")
     
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrompido pelo utilizador (Ctrl+C)")

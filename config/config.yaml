@@ -51,3 +51,12 @@ display:
 # Fila (estimativa de tempo de espera)
 queue:
   avg_service_time_sec: 20  # tempo médio de atendimento por pessoa (segundos)
+
+# Teclas (personalizáveis)
+controls:
+  quit: 'q'
+  toggle_debug: 'd'
+  toggle_boxes: 'o'
+  toggle_band: 'b'
+  toggle_eta: 'e'
+  toggle_direction: 'r'

@@ -42,6 +42,7 @@ _tracking = CONFIG.get('tracking', {})
 _counting = CONFIG.get('counting', {})
 _display = CONFIG.get('display', {})
 _queue = CONFIG.get('queue', {})
+_controls = CONFIG.get('controls', {})
 
 # Tracking e contagem
 TRACK_MATCH_RADIUS_PX = _tracking.get('match_radius_px', 60)
@@ -60,6 +61,14 @@ SHOW_ETA = bool(_display.get('show_eta', False))
 
 # Fila/ETA
 AVG_SERVICE_TIME_SEC = int(_queue.get('avg_service_time_sec', 20))
+
+# Controlo (teclas configuráveis)
+QUIT_KEY = _controls.get('quit', 'q').lower()
+DEBUG_KEY = _controls.get('toggle_debug', 'd').lower()
+BOXES_KEY = _controls.get('toggle_boxes', 'o').lower()
+BAND_KEY = _controls.get('toggle_band', 'b').lower()
+ETA_KEY = _controls.get('toggle_eta', 'e').lower()
+DIR_KEY = _controls.get('toggle_direction', 'r').lower()
 
 # Carregar modelo YOLO
 # Na primeira execução faz download automático (~6MB para nano)
@@ -133,7 +142,12 @@ def main():
     print(f"  - Confiança mínima: {CONFIDENCE:.0%}")
     print()
     print("🎮 Controlos:")
-    print("  Q - Sair")
+    print(f"  {QUIT_KEY.upper()} - Sair")
+    print(f"  {DEBUG_KEY.upper()} - Debug ON/OFF")
+    print(f"  {BOXES_KEY.upper()} - Boxes ON/OFF")
+    print(f"  {BAND_KEY.upper()} - Banda ON/OFF")
+    print(f"  {ETA_KEY.upper()} - ETA ON/OFF")
+    print(f"  {DIR_KEY.upper()} - Alternar direção")
     print()
     print("=" * 70)
     print()
@@ -256,22 +270,23 @@ def main():
             
             # Verificar tecla pressionada
             key = cv2.waitKey(1) & 0xFF
-            if key == ord('q') or key == ord('Q'):
+            key_char = chr(key).lower()
+            if key_char == QUIT_KEY:
                 print("\n🛑 A encerrar...")
                 break
-            elif key == ord('d') or key == ord('D'):
+            elif key_char == DEBUG_KEY:
                 debug = not debug
                 print(f"🐞 Debug: {'ON' if debug else 'OFF'}")
-            elif key == ord('o') or key == ord('O'):
+            elif key_char == BOXES_KEY:
                 show_boxes = not show_boxes
                 print(f"🧰 Boxes: {'ON' if show_boxes else 'OFF'}")
-            elif key == ord('b') or key == ord('B'):
+            elif key_char == BAND_KEY:
                 show_band = not show_band
                 print(f"📏 Banda: {'ON' if show_band else 'OFF'}")
-            elif key == ord('e') or key == ord('E'):
+            elif key_char == ETA_KEY:
                 show_eta = not show_eta
                 print(f"⏱️  ETA: {'ON' if show_eta else 'OFF'}")
-            elif key == ord('r') or key == ord('R'):
+            elif key_char == DIR_KEY:
                 direction = 'right_to_left' if direction == 'left_to_right' else 'left_to_right'
                 print(f"↔️  Direção: {direction}")
     

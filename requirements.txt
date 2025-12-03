@@ -8,3 +8,6 @@ pyyaml>=6.0
 
 # HTTP / integrações
 requests>=2.31.0
+
+# Serial / hardware inputs
+pyserial>=3.5

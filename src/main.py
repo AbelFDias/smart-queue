@@ -13,12 +13,14 @@ Autor: Abel Dias e Simão Marcos
 import cv2
 import yaml
 import time
+from queue import Queue, Empty
 from pathlib import Path
 from ultralytics.models.yolo import YOLO
 from vision import detect_people, draw_detections, draw_info
 from queue_metrics import QueueStats
 from tracker import SimpleTracker
 from emoncms_client import EmonCMSUploader, EmonCMSConfig
+from button_listener import ButtonListener, ButtonListenerConfig
 
 # ============================================
 # CONFIGURAÇÃO
@@ -46,6 +48,7 @@ _queue = CONFIG.get('queue', {})
 _controls = CONFIG.get('controls', {})
 _metrics = CONFIG.get('metrics', {})  # será removido quando window_sec migrar para queue
 _emoncms = CONFIG.get('emoncms', {})
+_button = CONFIG.get('button', {})
 
 # Tracking e contagem
 TRACK_MATCH_RADIUS_PX = _tracking.get('match_radius_px', 60)
@@ -67,6 +70,16 @@ SHOW_METRICS = bool(_display.get('show_metrics', False))
 AVG_SERVICE_TIME_SEC = int(_queue.get('avg_service_time_sec', 20))
 METRICS_WINDOW_SEC = int(_queue.get('window_sec', _metrics.get('window_sec', 120)))
 
+# Botão físico
+BUTTON_CONFIG = ButtonListenerConfig(
+    enabled=bool(_button.get('enabled', False)),
+    port=_button.get('port', 'COM6'),
+    baudrate=int(_button.get('baudrate', 115200)),
+    trigger_key=str(_button.get('trigger_key', '1'))[:1] or '1',
+    debounce_sec=float(_button.get('debounce_sec', 0.3)),
+)
+BUTTON_MODE_DEFAULT = bool(_button.get('use_button_mode', False))
+
 # EmonCMS
 EMON_CONFIG = EmonCMSConfig(
     enabled=bool(_emoncms.get('enabled', False)),
@@ -86,6 +99,7 @@ BAND_KEY = _controls.get('toggle_band', 'b').lower()
 ETA_KEY = _controls.get('toggle_eta', 'e').lower()
 DIR_KEY = _controls.get('toggle_direction', 'r').lower()
 METRICS_KEY = _controls.get('toggle_metrics', 'm').lower()
+SERVICE_MODE_KEY = _controls.get('toggle_service_mode', 't').lower()
 
 # Carregar modelo YOLO
 # Na primeira execução faz download automático (~6MB para nano)
@@ -166,6 +180,8 @@ def main():
     print(f"  {ETA_KEY.upper()} - ETA ON/OFF")
     print(f"  {DIR_KEY.upper()} - Alternar direção")
     print(f"  {METRICS_KEY.upper()} - Métricas ON/OFF")
+    if BUTTON_CONFIG.enabled:
+        print(f"  {SERVICE_MODE_KEY.upper()} - Alternar modo de atendimento (automático/botão)")
     if EMON_UPLOADER:
         print(f"  🌐 Upload emonCMS a cada {EMON_CONFIG.interval_sec}s (node '{EMON_CONFIG.node}')")
     elif EMON_CONFIG.enabled and not EMON_CONFIG.api_key:
@@ -195,10 +211,32 @@ def main():
     # Linha vertical (fila esquerda → direita), inicializa com base no tamanho do frame
     line_a = None  # (x, y)
     line_b = None  # (x, y)
+    button_events: Queue = Queue()
+    button_listener = None
+    trigger_key = BUTTON_CONFIG.normalized_key()
+    use_button_mode = BUTTON_CONFIG.enabled and BUTTON_MODE_DEFAULT
     
     def log_debug(msg: str):
         if debug:
             print(msg)
+
+    def handle_button_press(key: str):
+        if not key or not trigger_key:
+            return
+        if key.strip() == trigger_key:
+            button_events.put(time.time())
+            log_debug("🔘 Botão pressionado")
+
+    if BUTTON_CONFIG.enabled:
+        try:
+            button_listener = ButtonListener(BUTTON_CONFIG, on_key=handle_button_press)
+            button_listener.start()
+            mode_label = "botão" if use_button_mode else f"automático ({AVG_SERVICE_TIME_SEC}s)"
+            print(f"🔘 Botão ativo em {BUTTON_CONFIG.port} (tecla '{trigger_key}') | modo inicial: {mode_label}")
+        except RuntimeError as exc:
+            print(f"⚠️  Botão desativado: {exc}")
+            button_listener = None
+            use_button_mode = False
 
     try:
         while True:
@@ -214,11 +252,25 @@ def main():
                 line_a = (x_mid, 0)
                 line_b = (x_mid, H)
 
-            # Atualizar drenagem do modelo simulado por tempo decorrido
+            # Atualizar drenagem do modelo simulado por tempo decorrido / botão
             now = time.time()
             dt = now - last_tick_time
             last_tick_time = now
-            queue_stats.tick(dt, AVG_SERVICE_TIME_SEC)
+
+            button_presses = 0
+            while True:
+                try:
+                    button_events.get_nowait()
+                    button_presses += 1
+                except Empty:
+                    break
+
+            if button_presses:
+                queue_stats.register_service_events(button_presses)
+                log_debug(f"✅ {button_presses} atendimento(s) via botão")
+
+            if not use_button_mode:
+                queue_stats.tick(dt, AVG_SERVICE_TIME_SEC)
             
             total_frames += 1
             frame_counter += 1
@@ -340,6 +392,13 @@ def main():
             elif key_char == METRICS_KEY:
                 show_metrics = not show_metrics
                 print(f"📈 Métricas: {'ON' if show_metrics else 'OFF'}")
+            elif key_char == SERVICE_MODE_KEY:
+                if not BUTTON_CONFIG.enabled or button_listener is None:
+                    print("⚠️  Botão físico indisponível para alternar o modo.")
+                else:
+                    use_button_mode = not use_button_mode
+                    label = "botão" if use_button_mode else f"automático ({AVG_SERVICE_TIME_SEC}s)"
+                    print(f"🔄 Atendimento agora usa modo {label}")
     
     except KeyboardInterrupt:
         print("\n\n⚠️  Interrompido pelo utilizador (Ctrl+C)")
@@ -351,6 +410,8 @@ def main():
         # Libertar recursos
         cap.release()
         cv2.destroyAllWindows()
+        if button_listener:
+            button_listener.stop()
         
         # Estatísticas finais
         elapsed_time = time.time() - start_time

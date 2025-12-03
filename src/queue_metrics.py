@@ -41,6 +41,13 @@ class QueueStats:
             self.queue_estimate = max(0, self.queue_estimate - events)
             self._service_accum -= events * float(avg_service_time_sec)
 
+    def register_service_events(self, count: int = 1):
+        if count <= 0 or self.queue_estimate <= 0:
+            return
+        self.queue_estimate = max(0, self.queue_estimate - int(count))
+        if self.queue_estimate == 0:
+            self._service_accum = 0.0
+
     def current_queue_len(self) -> int:
         return int(self.queue_estimate)
 

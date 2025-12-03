@@ -12,6 +12,7 @@ Foco atual: implementação rápida, estável e offline (sem APIs externas), com
 - HUD com FPS, pessoas, entradas, direção, banda, fila e ETA
 - Parâmetros no `config.yaml` (modelo, FPS, confiança, tracking, linha, display, ETA, emonCMS)
 - Suporte a diferentes fontes de vídeo (webcam/Iriun)
+- Integração opcional com botão físico (Arduino + keypad) para registar atendimentos
 - Caminho do modelo resolvido de forma robusta (`models/yolov8n.pt`)
 
 ## 📁 Estrutura do projeto
@@ -21,7 +22,10 @@ smart-queue/
 ├── src/
 │   ├── main.py              # Orquestra captura, deteção, tracking e HUD
 │   ├── vision.py            # YOLO + desenhos (boxes, HUD)
-│   └── tracker.py           # SimpleTracker (centróides, TTL)
+│   ├── tracker.py           # SimpleTracker (centróides, TTL)
+│   ├── queue_metrics.py     # Modelo simples da fila / ETA
+│   ├── emoncms_client.py    # Upload periódico das métricas
+│   └── button_listener.py   # Listener série para o botão físico
 ├── config/
 │   └── config.yaml          # Fonte vídeo, modelo, detecção, tracking, linha, display, ETA
 ├── models/
@@ -77,6 +81,15 @@ queue:
 	avg_service_time_sec: 20
 	window_sec: 120
 
+# Botão físico (Arduino)
+button:
+	enabled: false
+	port: 'COM6'
+	baudrate: 115200
+	trigger_key: '1'
+	debounce_sec: 0.3
+	use_button_mode: false
+
 # Upload opcional para emonCMS (HTTP GET /input/post)
 emoncms:
 	enabled: false
@@ -114,6 +127,7 @@ Controlo (durante execução):
 - `R`: alterna direção (L→R ↔ R→L)
 - `E`: mostra/oculta linha compacta com fila + ETA
 - `M`: mostra/oculta overlay JSON das métricas (o mesmo payload enviado para emonCMS)
+- `T`: alterna modo de atendimento (automático com tempo médio ↔ botão físico)
 
 ## 🌐 Upload opcional para emonCMS
 
@@ -124,6 +138,15 @@ Controlo (durante execução):
 5. Erros de rede são registados no terminal mas não bloqueiam o loop principal.
 
 > Exemplo equivalente ao link oficial do projeto: `https://emoncms.org/input/post?node=emontx&fulljson={"power1":100,...}&apikey=XXXX`. O código usa o parâmetro `fulljson` para garantir compatibilidade.
+
+## 🔘 Botão físico (Arduino)
+
+1. Carrega o sketch do Arduino IDE (teclado matricial) e confirma que o monitor série imprime `Tecla: 1` quando carregas no botão desejado.
+2. Liga o microcontrolador ao PC e verifica em que porta COM ele aparece.
+3. Atualiza o bloco `button` no `config.yaml` (porta, baudrate, tecla) e define `enabled: true`.
+4. Se quiseres que a fila seja esvaziada **apenas** com o botão, define `use_button_mode: true` ou, durante a execução, pressiona `T` para alternar o modo.
+
+Sempre que a tecla configurada é recibida via série, o sistema regista um atendimento (subtrai 1 da fila e envia o novo valor para o HUD/emonCMS). No modo automático, a fila continua a drenar pelo tempo médio configurado e o botão serve apenas para acelerar atendimentos.
 
 ## 📊 Performance (CPU)
 

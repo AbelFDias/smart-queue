@@ -88,6 +88,7 @@ button:
 	baudrate: 115200
 	trigger_key: '1'
 	debounce_sec: 0.3
+	service_window: 5
 	use_button_mode: false
 
 # Upload opcional para emonCMS (HTTP GET /input/post)
@@ -147,6 +148,8 @@ Controlo (durante execução):
 4. Se quiseres que a fila seja esvaziada **apenas** com o botão, define `use_button_mode: true` ou, durante a execução, pressiona `T` para alternar o modo.
 
 Sempre que a tecla configurada é recibida via série, o sistema regista um atendimento (subtrai 1 da fila e envia o novo valor para o HUD/emonCMS). No modo automático, a fila continua a drenar pelo tempo médio configurado e o botão serve apenas para acelerar atendimentos.
+
+Quando `use_button_mode` está ativo o ETA deixa de usar o valor fixo e passa a calcular o tempo médio real usando os últimos `service_window` atendimentos (por omissão, 5). Assim a estimativa adapta-se ao ritmo manual observado sem precisar alterar a configuração.
 
 ## 📊 Performance (CPU)
 

@@ -79,6 +79,7 @@ BUTTON_CONFIG = ButtonListenerConfig(
     debounce_sec=float(_button.get('debounce_sec', 0.3)),
 )
 BUTTON_MODE_DEFAULT = bool(_button.get('use_button_mode', False))
+BUTTON_SERVICE_WINDOW = max(1, int(_button.get('service_window', 5)))
 
 # EmonCMS
 EMON_CONFIG = EmonCMSConfig(
@@ -207,7 +208,10 @@ def main():
     # Estado para contagem por linha
     tracker = SimpleTracker(match_radius_px=TRACK_MATCH_RADIUS_PX, ttl=TRACK_TTL)
     entry_count = 0
-    queue_stats = QueueStats(window_sec=METRICS_WINDOW_SEC)
+    queue_stats = QueueStats(
+        window_sec=METRICS_WINDOW_SEC,
+        service_window=BUTTON_SERVICE_WINDOW,
+    )
     # Linha vertical (fila esquerda → direita), inicializa com base no tamanho do frame
     line_a = None  # (x, y)
     line_b = None  # (x, y)
@@ -257,20 +261,25 @@ def main():
             dt = now - last_tick_time
             last_tick_time = now
 
-            button_presses = 0
+            service_events = []
             while True:
                 try:
-                    button_events.get_nowait()
-                    button_presses += 1
+                    service_events.append(button_events.get_nowait())
                 except Empty:
                     break
 
-            if button_presses:
-                queue_stats.register_service_events(button_presses)
-                log_debug(f"✅ {button_presses} atendimento(s) via botão")
+            if service_events and use_button_mode:
+                queue_stats.register_service_events(timestamps=service_events)
+                log_debug(f"✅ {len(service_events)} atendimento(s) via botão")
 
             if not use_button_mode:
                 queue_stats.tick(dt, AVG_SERVICE_TIME_SEC)
+
+            service_time_for_eta = (
+                queue_stats.estimated_service_time(AVG_SERVICE_TIME_SEC)
+                if use_button_mode
+                else float(AVG_SERVICE_TIME_SEC)
+            )
             
             total_frames += 1
             frame_counter += 1
@@ -325,14 +334,14 @@ def main():
 
             # Calcular fila e ETA via modelo simulado
             queue_len = queue_stats.current_queue_len()
-            eta_sec = queue_stats.eta_for_new(queue_len, AVG_SERVICE_TIME_SEC)
+            eta_sec = queue_stats.eta_for_new(queue_len, service_time_for_eta)
             # Construir dicionário de métricas (para emonCMS ou logs)
             metrics_dict = queue_stats.build_metrics(
                 fps=fps,
                 entries=entry_count,
                 direction=direction,
                 people_detected=len(last_detections),
-                avg_service_time_sec=AVG_SERVICE_TIME_SEC,
+                avg_service_time_sec=service_time_for_eta,
             )
 
             frame = draw_info(

@@ -62,6 +62,7 @@ button:
   trigger_key: '1'          # tecla que conta um atendimento
   debounce_sec: 0.3         # intervalo mínimo entre ações
   use_button_mode: true    # se true, fila esvazia apenas pelo botão
+  service_window: 5         # nº de atendimentos usados para média do ETA
 
 # Teclas (personalizáveis)
 controls:

@@ -85,9 +85,10 @@ class QueueStats:
         q_len = self.current_queue_len()
         # ETA passa a ser sempre calculado (antes dependia de include_eta/show_eta)
         eta_sec = self.eta_for_new(q_len, avg_service_time_sec)
+        dir_code = 1 if direction == "left_to_right" else -1
         return {
             "fps": round(float(fps), 2),
-            "direction": direction,
+            "direction": dir_code,
             "queue_len": int(q_len),
             "entries": int(entries),
             "people_detected": int(people_detected),

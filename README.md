@@ -10,7 +10,7 @@ Foco atual: implementação rápida, estável e offline (sem APIs externas), com
 - Tracking leve por centróides (associação 1:1, TTL)
 - Contagem por cruzamento de linha vertical com filtro de direção (L→R ou R→L)
 - HUD com FPS, pessoas, entradas, direção, banda, fila e ETA
-- Parâmetros no `config.yaml` (modelo, FPS, confiança, tracking, linha, display, ETA)
+- Parâmetros no `config.yaml` (modelo, FPS, confiança, tracking, linha, display, ETA, emonCMS)
 - Suporte a diferentes fontes de vídeo (webcam/Iriun)
 - Caminho do modelo resolvido de forma robusta (`models/yolov8n.pt`)
 
@@ -69,10 +69,22 @@ display:
 	show_boxes: true
 	show_band: false
 	debug: false
+	show_eta: true
+	show_metrics: false
 
 # Fila (estimativa de tempo de espera)
 queue:
 	avg_service_time_sec: 20
+	window_sec: 120
+
+# Upload opcional para emonCMS (HTTP GET /input/post)
+emoncms:
+	enabled: false
+	base_url: 'https://emoncms.org/input/post'
+	api_key: 'SUA-KEY'
+	node: 'smart-queue'
+	interval_sec: 5
+	timeout_sec: 4
 ```
 
 ## 🚀 Instalação
@@ -100,6 +112,18 @@ Controlo (durante execução):
 - `O`: alterna boxes (YOLO)
 - `B`: alterna banda de contagem
 - `R`: alterna direção (L→R ↔ R→L)
+- `E`: mostra/oculta linha compacta com fila + ETA
+- `M`: mostra/oculta overlay JSON das métricas (o mesmo payload enviado para emonCMS)
+
+## 🌐 Upload opcional para emonCMS
+
+1. Obtém uma API Key no teu servidor emonCMS (pode ser self-hosted ou https://emoncms.org).
+2. Ajusta o bloco `emoncms` no `config.yaml` (ativa `enabled: true`, define `api_key`, `node`, etc.).
+3. Ao iniciar o programa verás uma linha `🌐 Upload emonCMS...` a confirmar a configuração.
+4. O sistema envia pedidos `GET /input/post` com `json={...}` contendo exatamente as métricas mostradas no overlay (`fps`, `direction`, `queue_len`, `entries`, `people_detected`, `eta_sec`).
+5. Erros de rede são registados no terminal mas não bloqueiam o loop principal.
+
+> Exemplo equivalente ao link oficial do projeto: `https://emoncms.org/input/post?node=emontx&fulljson={"power1":100,...}&apikey=XXXX`. O código usa o parâmetro `fulljson` para garantir compatibilidade.
 
 ## 📊 Performance (CPU)
 

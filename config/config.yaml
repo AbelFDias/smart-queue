@@ -64,4 +64,11 @@ controls:
   toggle_direction: 'r'
   toggle_metrics: 'm'
 
-# Métricas de fila
+# Integração emonCMS (upload HTTP GET)
+emoncms:
+  enabled: true                    # ativa/desativa upload
+  base_url: 'https://emoncms.org/input/post'  # endpoint /input/post
+  api_key: 'dff22a3a6099bcdd7a2ff33bf86afa94' # API key (obrigatório se enabled=true)
+  node: 'smart-queue'               # identificador do nó no emonCMS
+  interval_sec: 5                   # intervalo mínimo entre uploads
+  timeout_sec: 4                    # timeout HTTP

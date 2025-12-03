@@ -18,6 +18,7 @@ from ultralytics.models.yolo import YOLO
 from vision import detect_people, draw_detections, draw_info
 from queue_metrics import QueueStats
 from tracker import SimpleTracker
+from emoncms_client import EmonCMSUploader, EmonCMSConfig
 
 # ============================================
 # CONFIGURAÇÃO
@@ -44,6 +45,7 @@ _display = CONFIG.get('display', {})
 _queue = CONFIG.get('queue', {})
 _controls = CONFIG.get('controls', {})
 _metrics = CONFIG.get('metrics', {})  # será removido quando window_sec migrar para queue
+_emoncms = CONFIG.get('emoncms', {})
 
 # Tracking e contagem
 TRACK_MATCH_RADIUS_PX = _tracking.get('match_radius_px', 60)
@@ -64,6 +66,17 @@ SHOW_METRICS = bool(_display.get('show_metrics', False))
 # Fila/ETA
 AVG_SERVICE_TIME_SEC = int(_queue.get('avg_service_time_sec', 20))
 METRICS_WINDOW_SEC = int(_queue.get('window_sec', _metrics.get('window_sec', 120)))
+
+# EmonCMS
+EMON_CONFIG = EmonCMSConfig(
+    enabled=bool(_emoncms.get('enabled', False)),
+    base_url=_emoncms.get('base_url', 'https://emoncms.org/input/post'),
+    api_key=_emoncms.get('api_key', ''),
+    node=_emoncms.get('node', 'smart-queue'),
+    interval_sec=float(_emoncms.get('interval_sec', 5)),
+    timeout_sec=float(_emoncms.get('timeout_sec', 4)),
+)
+EMON_UPLOADER = EmonCMSUploader(EMON_CONFIG) if EMON_CONFIG.enabled and EMON_CONFIG.api_key else None
 
 # Controlo (teclas configuráveis)
 QUIT_KEY = _controls.get('quit', 'q').lower()
@@ -153,6 +166,10 @@ def main():
     print(f"  {ETA_KEY.upper()} - ETA ON/OFF")
     print(f"  {DIR_KEY.upper()} - Alternar direção")
     print(f"  {METRICS_KEY.upper()} - Métricas ON/OFF")
+    if EMON_UPLOADER:
+        print(f"  🌐 Upload emonCMS a cada {EMON_CONFIG.interval_sec}s (node '{EMON_CONFIG.node}')")
+    elif EMON_CONFIG.enabled and not EMON_CONFIG.api_key:
+        print("⚠️  emonCMS está ativado mas falta api_key. Upload desativado.")
     print()
     print("=" * 70)
     print()
@@ -280,6 +297,9 @@ def main():
                 show_metrics,
                 metrics_dict,
             )
+
+            if EMON_UPLOADER:
+                EMON_UPLOADER.maybe_send(metrics_dict)
 
             # Desenhar linha de contagem (após overlay para ficar visível)
             if line_a is not None and line_b is not None:

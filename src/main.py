@@ -342,6 +342,7 @@ def main():
                 direction=direction,
                 people_detected=len(last_detections),
                 avg_service_time_sec=service_time_for_eta,
+                now=time.time(),
             )
 
             frame = draw_info(

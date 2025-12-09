@@ -109,7 +109,8 @@ class QueueStats:
         now: Optional[float] = None,
     ) -> Dict:
         """Retorna apenas o conjunto simplificado de métricas pedido.
-        Campos: fps, direction, queue_len, entries, people_detected, eta_sec
+        Campos: fps, direction, queue_len, entries, people_detected, eta_sec,
+        arrival_rate_min, service_rate_min, service_time_sec
         """
         if now is None:
             now = time.time()
@@ -117,6 +118,8 @@ class QueueStats:
         # ETA passa a ser sempre calculado (antes dependia de include_eta/show_eta)
         eta_sec = self.eta_for_new(q_len, avg_service_time_sec)
         dir_code = 1 if direction == "left_to_right" else -1
+        arr_rate = self.arrival_rate_per_min(now)
+        svc_rate = self.service_rate_per_min(avg_service_time_sec)
         return {
             "fps": round(float(fps), 2),
             "direction": dir_code,
@@ -124,4 +127,7 @@ class QueueStats:
             "entries": int(entries),
             "people_detected": int(people_detected),
             "eta_sec": int(eta_sec),
+            "arrival_rate_min": round(arr_rate, 3),
+            "service_rate_min": round(svc_rate, 3),
+            "service_time_sec": round(float(avg_service_time_sec), 2),
         }

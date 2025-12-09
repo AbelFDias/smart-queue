@@ -135,7 +135,7 @@ Controlo (durante execução):
 1. Obtém uma API Key no teu servidor emonCMS (pode ser self-hosted ou https://emoncms.org).
 2. Ajusta o bloco `emoncms` no `config.yaml` (ativa `enabled: true`, define `api_key`, `node`, etc.).
 3. Ao iniciar o programa verás uma linha `🌐 Upload emonCMS...` a confirmar a configuração.
-4. O sistema envia pedidos `GET /input/post` com `json={...}` contendo exatamente as métricas mostradas no overlay (`fps`, `direction`, `queue_len`, `entries`, `people_detected`, `eta_sec`).
+4. O sistema envia pedidos `GET /input/post` com `json={...}` contendo as métricas do overlay (`fps`, `direction`, `queue_len`, `entries`, `people_detected`, `eta_sec`) e também `arrival_rate_min`, `service_rate_min`, `service_time_sec` para usares em dashboards.
 5. Erros de rede são registados no terminal mas não bloqueiam o loop principal.
 
 > Exemplo equivalente ao link oficial do projeto: `https://emoncms.org/input/post?node=emontx&fulljson={"power1":100,...}&apikey=XXXX`. O código usa o parâmetro `fulljson` para garantir compatibilidade.
@@ -150,6 +150,18 @@ Controlo (durante execução):
 Sempre que a tecla configurada é recibida via série, o sistema regista um atendimento (subtrai 1 da fila e envia o novo valor para o HUD/emonCMS). No modo automático, a fila continua a drenar pelo tempo médio configurado e o botão serve apenas para acelerar atendimentos.
 
 Quando `use_button_mode` está ativo o ETA deixa de usar o valor fixo e passa a calcular o tempo médio real usando os últimos `service_window` atendimentos (por omissão, 5). Assim a estimativa adapta-se ao ritmo manual observado sem precisar alterar a configuração.
+
+### 🎛️ Dashboard rápido no emonCMS
+
+1. **Feeds**: depois de correres o `main.py` com upload ativo, o emonCMS cria feeds automáticos com o prefixo do `node` (ex.: `smart-queue:queue_len`, `smart-queue:eta_sec`, `smart-queue:arrival_rate_min`, `smart-queue:service_rate_min`).
+2. **Dashboard**: navega em *Dashboards → Add New*, escolhe um layout e adiciona widgets do tipo *LED*, *Dial* ou *Feed value*. Liga cada widget ao feed correspondente.
+3. **Fila atual**: usa o feed `queue_len` para mostrar o número de pessoas em tempo real.
+4. **ETA**: usa `eta_sec` e define a unidade para segundos/minutos conforme preferires (podes dividir por 60 usando a opção *Scale* do widget).
+5. **Taxas**: `arrival_rate_min` dá chegadas por minuto, `service_rate_min` dá atendimentos/minuto. Dials funcionam bem aqui.
+6. **Refresh**: define o *Refresh interval* do dashboard para 5s (ou o valor configurado em `interval_sec`) para acompanhar quase em tempo real.
+7. **Histórico**: se quiseres gráficos, usa *Visualizations → Graph* e seleciona os mesmos feeds; podes embedar o gráfico no dashboard via *Embed graph*.
+
+Com isso tens um painel completo sem código adicional – tudo alimentado pelo payload já enviado.
 
 ## 📊 Performance (CPU)
 

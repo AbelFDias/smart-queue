@@ -44,6 +44,7 @@ class ButtonListener:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._last_emit_ts: float = 0.0
+        self._led_state: bool = False
 
     def start(self):
         if not self.cfg.enabled:
@@ -65,6 +66,8 @@ class ButtonListener:
 
     def stop(self):
         self._stop.set()
+        # Desligar LED antes de fechar
+        self.set_led(False)
         if self._thread and self._thread.is_alive():
             self._thread.join(timeout=1.0)
         if self._serial and self._serial.is_open:
@@ -72,6 +75,20 @@ class ButtonListener:
                 self._serial.close()
             except SerialException:
                 pass
+
+    def set_led(self, state: bool):
+        """Envia comando para ligar (True) ou desligar (False) o LED vermelho."""
+        if not self._serial or not self._serial.is_open:
+            return
+        if self._led_state == state:
+            return  # Já está no estado desejado
+        try:
+            cmd = "LED:1\n" if state else "LED:0\n"
+            self._serial.write(cmd.encode('utf-8'))
+            self._serial.flush()
+            self._led_state = state
+        except SerialException:
+            pass  # Ignorar erros de comunicação
 
     def _run(self):  # pragma: no cover - relies on hardware
         assert self._serial is not None

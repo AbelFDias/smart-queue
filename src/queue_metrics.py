@@ -106,11 +106,12 @@ class QueueStats:
         direction: str,
         people_detected: int,
         avg_service_time_sec: float,
+        led_alert: bool = False,
         now: Optional[float] = None,
     ) -> Dict:
         """Retorna apenas o conjunto simplificado de métricas pedido.
         Campos: fps, direction, queue_len, entries, people_detected, eta_sec,
-        arrival_rate_min, service_rate_min, service_time_sec
+        arrival_rate_min, service_rate_min, service_time_sec, led_alert
         """
         if now is None:
             now = time.time()
@@ -130,4 +131,5 @@ class QueueStats:
             "arrival_rate_min": round(arr_rate, 3),
             "service_rate_min": round(svc_rate, 3),
             "service_time_sec": round(float(avg_service_time_sec), 2),
+            "led_alert": int(led_alert),
         }

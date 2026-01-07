@@ -335,6 +335,10 @@ def main():
             # Calcular fila e ETA via modelo simulado
             queue_len = queue_stats.current_queue_len()
             eta_sec = queue_stats.eta_for_new(queue_len, service_time_for_eta)
+            
+            # Determinar se o LED está ativo (ETA > 10 minutos = 600 segundos)
+            led_should_be_on = eta_sec > 60
+            
             # Construir dicionário de métricas (para emonCMS ou logs)
             metrics_dict = queue_stats.build_metrics(
                 fps=fps,
@@ -342,6 +346,7 @@ def main():
                 direction=direction,
                 people_detected=len(last_detections),
                 avg_service_time_sec=service_time_for_eta,
+                led_alert=led_should_be_on,
                 now=time.time(),
             )
 
@@ -362,6 +367,10 @@ def main():
 
             if EMON_UPLOADER:
                 EMON_UPLOADER.maybe_send(metrics_dict)
+
+            # Controlar LED vermelho baseado no ETA
+            if button_listener:
+                button_listener.set_led(led_should_be_on)
 
             # Desenhar linha de contagem (após overlay para ficar visível)
             if line_a is not None and line_b is not None:

@@ -70,24 +70,20 @@ class QueueStats:
     def current_queue_len(self) -> int:
         return int(self.queue_estimate)
 
+    # taxa de chegada (lambda) em eventos por minuto
     def arrival_rate_per_min(self, now: Optional[float] = None) -> float:
         self._prune(now)
         n = len(self._arrivals)
         return (n / float(self.window_sec)) * 60.0 if n > 0 else 0.0
 
+    #taxa de serviço (mu) em eventos por minuto
     @staticmethod
     def service_rate_per_min(avg_service_time_sec: float) -> float:
         if not avg_service_time_sec or avg_service_time_sec <= 0:
             return 0.0
         return 60.0 / float(avg_service_time_sec)
 
-    @staticmethod
-    def utilization(lambda_per_min: float, mu_per_min: float) -> float:
-        capacity = mu_per_min
-        if capacity <= 0:
-            return 0.0
-        return max(0.0, min(1.0, lambda_per_min / capacity))
-
+    # ETA em segundos para a fila atual
     @staticmethod
     def eta_for_new(queue_len: int, avg_service_time_sec: float) -> int:
         if queue_len <= 0 or avg_service_time_sec <= 0:
